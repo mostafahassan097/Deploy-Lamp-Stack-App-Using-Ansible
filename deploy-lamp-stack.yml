@@ -1,0 +1,115 @@
+---
+- name: install prober packages
+  hosts: all
+  become: true
+  tasks:
+     - name: install important pakcages
+       yum:
+         name:
+           - firewalld
+           - libselinux-python
+           - libsemanage-python
+         state: present
+- name: configure lamp-db
+  hosts: lamp-db
+  become: true
+  tasks:
+    - name: install mariadb-server and Mysql-Python
+      yum:
+        name: 
+          - mariadb-server
+          - MySQL-python.x86_64
+        state: latest
+    
+    - name: copy config files
+      copy:
+        src: files/my.cnf
+        dest: /etc/my.cnf
+
+    - name: start mariadb and enable it
+      service:
+        name: mariadb
+        state: started
+        enabled: true
+    
+    - name: enable firewalld
+      service:
+         name: firewalld
+         state: started 
+         enabled: true
+
+    - name: firewalld rule to allow mysql to connect port 3306
+      firewalld:
+           port: 3306/tcp
+           permanent: yes
+           state: enabled
+           immediate: true
+           zone: public
+    - name: create db user
+      mysql_user:
+          name: "{{dbuser}}"
+          password: "{{dbpassword}}"
+          priv: '*.*:ALL'
+          state: present
+          host: lamp-web
+    - name: create db
+      mysql_db:
+          name: "{{dbname}}"
+          state: present
+    - name: copy db-load-script.sql 
+      copy:
+        src: db-load-script.sql
+        dest: /tmp
+    - name: Load Inventory data 
+      shell: mysql -f < /tmp/db-load-script.sql
+
+
+- name: configure lamp-web
+  hosts: lampweb
+  gather_facts: no
+  become: true
+  tasks:
+    - name: install php and httpd and git 
+      yum:
+        name: 
+          - httpd
+          - php
+          - php-mysql
+          - git
+        state: latest
+    
+    - name: enable firewalld
+      service:
+         name: firewalld
+         state: started 
+         enabled: true
+
+    - name: firewalld rule to allow mysql to connect port 3306
+      firewalld:
+           port: "{{httpd_port}}/tcp"
+           permanent: yes
+           state: enabled
+           immediate: true
+           zone: public
+    - name: configure index.php package
+      replace:
+         path: /etc/httpd/conf/httpd.conf
+         regexp: 'DirectoryIndex index.html'
+         replace: 'DirectoryIndex index.php'
+         backup: yes
+    - name: start httpd and enable it
+      service:
+        name: httpd
+        state: started
+        enabled: true
+
+    - name: clone repo code 
+      git: 
+        repo: "{{repository}}"
+        dest: /var/www/html/
+        force: true
+    - name: copy cutome php file 
+      copy: 
+        src: files/index.php
+        dest: /var/www/html/index.php
+        
